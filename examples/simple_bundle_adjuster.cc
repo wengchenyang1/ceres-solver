@@ -37,11 +37,159 @@
 
 #include <cmath>
 #include <cstdio>
+#include <fstream>
 #include <iostream>
 
 #include "ceres/ceres.h"
 #include "ceres/rotation.h"
 
+typedef Eigen::Map<Eigen::VectorXd> VectorRef;
+typedef Eigen::Map<const Eigen::VectorXd> ConstVectorRef;
+
+template <typename T>
+inline T DotProduct(const T x[3], const T y[3]) {
+  return (x[0] * y[0] + x[1] * y[1] + x[2] * y[2]);
+}
+
+template <typename T>
+inline void CrossProduct(const T x[3], const T y[3], T result[3]) {
+  result[0] = x[1] * y[2] - x[2] * y[1];
+  result[1] = x[2] * y[0] - x[0] * y[2];
+  result[2] = x[0] * y[1] - x[1] * y[0];
+}
+
+//////////////////////////////////////////////////////////////////
+
+// Converts from a angle anxis to quaternion :
+template <typename T>
+inline void AngleAxisToQuaternion(const T* angle_axis, T* quaternion) {
+  const T& a0 = angle_axis[0];
+  const T& a1 = angle_axis[1];
+  const T& a2 = angle_axis[2];
+  const T theta_squared = a0 * a0 + a1 * a1 + a2 * a2;
+
+  if (theta_squared > T(std::numeric_limits<double>::epsilon())) {
+    const T theta = sqrt(theta_squared);
+    const T half_theta = theta * T(0.5);
+    const T k = sin(half_theta) / theta;
+    quaternion[0] = cos(half_theta);
+    quaternion[1] = a0 * k;
+    quaternion[2] = a1 * k;
+    quaternion[3] = a2 * k;
+  } else {  // in case if theta_squared is zero
+    const T k(0.5);
+    quaternion[0] = T(1.0);
+    quaternion[1] = a0 * k;
+    quaternion[2] = a1 * k;
+    quaternion[3] = a2 * k;
+  }
+}
+
+template <typename T>
+inline void QuaternionToAngleAxis(const T* quaternion, T* angle_axis) {
+  const T& q1 = quaternion[1];
+  const T& q2 = quaternion[2];
+  const T& q3 = quaternion[3];
+  const T sin_squared_theta = q1 * q1 + q2 * q2 + q3 * q3;
+
+  // For quaternions representing non-zero rotation, the conversion
+  // is numercially stable
+  if (sin_squared_theta > T(std::numeric_limits<double>::epsilon())) {
+    const T sin_theta = sqrt(sin_squared_theta);
+    const T& cos_theta = quaternion[0];
+
+    // If cos_theta is negative, theta is greater than pi/2, which
+    // means that angle for the angle_axis vector which is 2 * theta
+    // would be greater than pi...
+
+    const T two_theta =
+        T(2.0) * ((cos_theta < 0.0) ? atan2(-sin_theta, -cos_theta)
+                                    : atan2(sin_theta, cos_theta));
+    const T k = two_theta / sin_theta;
+
+    angle_axis[0] = q1 * k;
+    angle_axis[1] = q2 * k;
+    angle_axis[2] = q3 * k;
+  } else {
+    // For zero rotation, sqrt() will produce NaN in derivative since
+    // the argument is zero. By approximating with a Taylor series,
+    // and truncating at one term, the value and first derivatives will be
+    // computed correctly when Jets are used..
+    const T k(2.0);
+    angle_axis[0] = q1 * k;
+    angle_axis[1] = q2 * k;
+    angle_axis[2] = q3 * k;
+  }
+}
+
+template <typename T>
+inline void AngleAxisRotatePoint(const T angle_axis[3],
+                                 const T pt[3],
+                                 T result[3]) {
+  const T theta2 = DotProduct(angle_axis, angle_axis);
+  if (theta2 > T(std::numeric_limits<double>::epsilon())) {
+    // Away from zero, use the rodriguez formula
+    //
+    //   result = pt costheta +
+    //            (w x pt) * sintheta +
+    //            w (w . pt) (1 - costheta)
+    //
+    // We want to be careful to only evaluate the square root if the
+    // norm of the angle_axis vector is greater than zero. Otherwise
+    // we get a division by zero.
+    //
+    const T theta = sqrt(theta2);
+    const T costheta = cos(theta);
+    const T sintheta = sin(theta);
+    const T theta_inverse = 1.0 / theta;
+
+    const T w[3] = {angle_axis[0] * theta_inverse,
+                    angle_axis[1] * theta_inverse,
+                    angle_axis[2] * theta_inverse};
+
+    // Explicitly inlined evaluation of the cross product for
+    // performance reasons.
+    /*const T w_cross_pt[3] = { w[1] * pt[2] - w[2] * pt[1],
+                              w[2] * pt[0] - w[0] * pt[2],
+                              w[0] * pt[1] - w[1] * pt[0] };*/
+    T w_cross_pt[3];
+    CrossProduct(w, pt, w_cross_pt);
+
+    const T tmp = DotProduct(w, pt) * (T(1.0) - costheta);
+    //    (w[0] * pt[0] + w[1] * pt[1] + w[2] * pt[2]) * (T(1.0) - costheta);
+
+    result[0] = pt[0] * costheta + w_cross_pt[0] * sintheta + w[0] * tmp;
+    result[1] = pt[1] * costheta + w_cross_pt[1] * sintheta + w[1] * tmp;
+    result[2] = pt[2] * costheta + w_cross_pt[2] * sintheta + w[2] * tmp;
+  } else {
+    // Near zero, the first order Taylor approximation of the rotation
+    // matrix R corresponding to a vector w and angle w is
+    //
+    //   R = I + hat(w) * sin(theta)
+    //
+    // But sintheta ~ theta and theta * w = angle_axis, which gives us
+    //
+    //  R = I + hat(w)
+    //
+    // and actually performing multiplication with the point pt, gives us
+    // R * pt = pt + w x pt.
+    //
+    // Switching to the Taylor expansion near zero provides meaningful
+    // derivatives when evaluated using Jets.
+    //
+    // Explicitly inlined evaluation of the cross product for
+    // performance reasons.
+    /*const T w_cross_pt[3] = { angle_axis[1] * pt[2] - angle_axis[2] * pt[1],
+                              angle_axis[2] * pt[0] - angle_axis[0] * pt[2],
+                              angle_axis[0] * pt[1] - angle_axis[1] * pt[0] };*/
+    T w_cross_pt[3];
+    CrossProduct(angle_axis, pt, w_cross_pt);
+
+    result[0] = pt[0] + w_cross_pt[0];
+    result[1] = pt[1] + w_cross_pt[1];
+    result[2] = pt[2] + w_cross_pt[2];
+  }
+}
 // Read a Bundle Adjustment in the Large dataset.
 class BALProblem {
  public:
@@ -95,6 +243,60 @@ class BALProblem {
     return true;
   }
 
+  void CameraToAngelAxisAndCenter(const double* camera,
+                                  double* angle_axis,
+                                  double* center) const {
+    VectorRef angle_axis_ref(angle_axis, 3);
+    if (use_quaternions_) {
+      QuaternionToAngleAxis(camera, angle_axis);
+    } else {
+      angle_axis_ref = ConstVectorRef(camera, 3);
+    }
+
+    // c = -R't
+    Eigen::VectorXd inverse_rotation = -angle_axis_ref;
+    AngleAxisRotatePoint(
+        inverse_rotation.data(), camera + camera_block_size() - 6, center);
+    VectorRef(center, 3) *= -1.0;
+  }
+
+  // Write the problem to a PLY file for inspection in Meshlab or CloudCompare
+  void WriteToPLYFile(const std::string& filename) const {
+    std::ofstream of(filename.c_str());
+
+    of << "ply" << '\n'
+       << "format ascii 1.0" << '\n'
+       << "element vertex " << num_cameras_ + num_points_ << '\n'
+       << "property float x" << '\n'
+       << "property float y" << '\n'
+       << "property float z" << '\n'
+       << "property uchar red" << '\n'
+       << "property uchar green" << '\n'
+       << "property uchar blue" << '\n'
+       << "end_header" << std::endl;
+
+    // Export extrinsic data (i.e. camera centers) as green points.
+    double angle_axis[3];
+    double center[3];
+    for (int i = 0; i < num_cameras_; ++i) {
+      const double* camera = parameters_ + camera_block_size() * i;
+      CameraToAngelAxisAndCenter(camera, angle_axis, center);
+      of << center[0] << ' ' << center[1] << ' ' << center[2] << " 0 255 0"
+         << '\n';
+    }
+
+    // Export the structure (i.e. 3D Points) as white points.
+    const double* points = parameters_ + camera_block_size() * num_cameras_;
+    for (int i = 0; i < num_points_; ++i) {
+      const double* point = points + i * point_block_size();
+      for (int j = 0; j < point_block_size(); ++j) {
+        of << point[j] << ' ';
+      }
+      of << " 255 255 255\n";
+    }
+    of.close();
+  }
+
  private:
   template <typename T>
   void FscanfOrDie(FILE* fptr, const char* format, T* value) {
@@ -103,6 +305,9 @@ class BALProblem {
       LOG(FATAL) << "Invalid UW data file.";
     }
   }
+
+  int camera_block_size() const { return (use_quaternions_ ? 10 : 9); }
+  int point_block_size() const { return 3; }
 
   int num_cameras_;
   int num_points_;
@@ -113,6 +318,8 @@ class BALProblem {
   int* camera_index_;
   double* observations_;
   double* parameters_;
+
+  bool const use_quaternions_{true};
 };
 
 // Templated pinhole camera model for used with Ceres.  The camera is
@@ -187,6 +394,8 @@ int main(int argc, char** argv) {
 
   const double* observations = bal_problem.observations();
 
+  bal_problem.WriteToPLYFile("initial.ply");
+
   // Create residuals for each observation in the bundle adjustment problem. The
   // parameters for cameras and points are added automatically.
   ceres::Problem problem;
@@ -213,5 +422,7 @@ int main(int argc, char** argv) {
   ceres::Solver::Summary summary;
   ceres::Solve(options, &problem, &summary);
   std::cout << summary.FullReport() << "\n";
+
+  bal_problem.WriteToPLYFile("final.ply");
   return 0;
 }

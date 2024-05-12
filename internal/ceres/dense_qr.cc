@@ -199,8 +199,7 @@ LinearSolverTerminationType LAPACKDenseQR::Factorize(int num_rows,
           &info);
   if (info < 0) {
     LOG(FATAL) << "Congratulations, you found a bug in Ceres."
-               << "Please report it."
-               << "LAPACK::dgels fatal error."
+               << "Please report it." << "LAPACK::dgels fatal error."
                << "Argument: " << -info << " is invalid.";
   }
 

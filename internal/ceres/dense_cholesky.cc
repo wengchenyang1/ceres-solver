@@ -215,8 +215,7 @@ LinearSolverTerminationType LAPACKDenseCholesky::Factorize(
   if (info < 0) {
     termination_type_ = LinearSolverTerminationType::FATAL_ERROR;
     LOG(FATAL) << "Congratulations, you found a bug in Ceres. "
-               << "Please report it. "
-               << "LAPACK::dpotrf fatal error. "
+               << "Please report it. " << "LAPACK::dpotrf fatal error. "
                << "Argument: " << -info << " is invalid.";
   } else if (info > 0) {
     termination_type_ = LinearSolverTerminationType::FAILURE;
@@ -245,8 +244,7 @@ LinearSolverTerminationType LAPACKDenseCholesky::Solve(const double* rhs,
   if (info < 0) {
     termination_type_ = LinearSolverTerminationType::FATAL_ERROR;
     LOG(FATAL) << "Congratulations, you found a bug in Ceres. "
-               << "Please report it. "
-               << "LAPACK::dpotrs fatal error. "
+               << "Please report it. " << "LAPACK::dpotrs fatal error. "
                << "Argument: " << -info << " is invalid.";
   }
 
@@ -268,8 +266,7 @@ LinearSolverTerminationType FloatLAPACKDenseCholesky::Factorize(
   if (info < 0) {
     termination_type_ = LinearSolverTerminationType::FATAL_ERROR;
     LOG(FATAL) << "Congratulations, you found a bug in Ceres. "
-               << "Please report it. "
-               << "LAPACK::spotrf fatal error. "
+               << "Please report it. " << "LAPACK::spotrf fatal error. "
                << "Argument: " << -info << " is invalid.";
   } else if (info > 0) {
     termination_type_ = LinearSolverTerminationType::FAILURE;
@@ -302,8 +299,7 @@ LinearSolverTerminationType FloatLAPACKDenseCholesky::Solve(
   if (info < 0) {
     termination_type_ = LinearSolverTerminationType::FATAL_ERROR;
     LOG(FATAL) << "Congratulations, you found a bug in Ceres. "
-               << "Please report it. "
-               << "LAPACK::dpotrs fatal error. "
+               << "Please report it. " << "LAPACK::dpotrs fatal error. "
                << "Argument: " << -info << " is invalid.";
   }
 

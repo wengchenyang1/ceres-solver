@@ -128,9 +128,9 @@ void ExpectArraysClose(int n, const double* p, const double* q, double tol) {
   CHECK(q);
 
   for (int i = 0; i < n; ++i) {
-    EXPECT_TRUE(ExpectClose(p[i], q[i], tol)) << "p[" << i << "]" << p[i] << " "
-                                              << "q[" << i << "]" << q[i] << " "
-                                              << "tol: " << tol;
+    EXPECT_TRUE(ExpectClose(p[i], q[i], tol))
+        << "p[" << i << "]" << p[i] << " " << "q[" << i << "]" << q[i] << " "
+        << "tol: " << tol;
   }
 }
 

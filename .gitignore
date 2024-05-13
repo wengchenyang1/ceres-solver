@@ -27,3 +27,5 @@ bazel-*
 
 cmake-build*
 small-blas-benchmarks
+
+*.ply

@@ -138,8 +138,8 @@ DEFINE_bool(line_search, false, "Use a line search instead of trust region "
             "algorithm.");
 DEFINE_bool(mixed_precision_solves, false, "Use mixed precision solves.");
 DEFINE_int32(max_num_refinement_iterations, 0, "Iterative refinement iterations");
-DEFINE_string(initial_ply, "", "Export the BAL file data as a PLY file.");
-DEFINE_string(final_ply, "", "Export the refined BAL file data as a PLY "
+DEFINE_string(initial_ply, "initial.ply", "Export the BAL file data as a PLY file.");
+DEFINE_string(final_ply, "final.ply", "Export the refined BAL file data as a PLY "
               "file.");
 // clang-format on
 

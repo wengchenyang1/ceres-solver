@@ -29,3 +29,4 @@ cmake-build*
 small-blas-benchmarks
 
 *.ply
+*.bal
